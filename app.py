@@ -1,10 +1,9 @@
 import streamlit as st
 from rag_pipeline import *
 
-# ------------------ PAGE CONFIG ------------------
 st.set_page_config(page_title="RAG Chatbot", layout="wide")
 
-# ------------------ CUSTOM UI ------------------
+# Custom UI
 st.markdown("""
 <style>
 .user-msg {
@@ -26,7 +25,7 @@ st.markdown("""
 
 st.title("🏗️ Construction RAG Chatbot")
 
-# ------------------ LOAD DATA ------------------
+# Setup
 @st.cache_resource
 def setup_rag():
     text = load_all_pdfs("data/")
@@ -37,7 +36,7 @@ def setup_rag():
 
 chunks, index = setup_rag()
 
-# ------------------ CHAT MEMORY ------------------
+# Chat memory
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -48,7 +47,7 @@ for msg in st.session_state.messages:
     else:
         st.markdown(f'<div class="bot-msg">{msg["content"]}</div>', unsafe_allow_html=True)
 
-# ------------------ INPUT ------------------
+# Input
 query = st.text_input("Ask your question:")
 
 if query:
@@ -60,7 +59,7 @@ if query:
     # Generation
     answer = generate_answer(query, retrieved_chunks)
 
-    # Transparency (MANDATORY)
+    # Transparency
     context_text = "\n\n".join(retrieved_chunks)
 
     full_response = f"""
