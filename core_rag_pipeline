@@ -6,7 +6,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load API key
 load_dotenv()
 client = OpenAI()
 
@@ -14,7 +14,6 @@ client = OpenAI()
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # ------------------ DOCUMENT PROCESSING ------------------
-
 def load_all_pdfs(folder_path):
     text = ""
     for file in os.listdir(folder_path):
@@ -42,8 +41,7 @@ def create_embeddings(chunks):
     return model.encode(chunks)
 
 
-# ------------------ VECTOR INDEXING ------------------
-
+# ------------------ VECTOR INDEX ------------------
 def build_index(embeddings):
     dimension = embeddings.shape[1]
     index = faiss.IndexFlatL2(dimension)
@@ -58,28 +56,27 @@ def retrieve(query, index, chunks, k=3):
 
 
 # ------------------ LLM GENERATION ------------------
-
 def generate_answer(query, retrieved_chunks):
 
     context = "\n".join(retrieved_chunks)
 
     prompt = f"""
-    You are an AI assistant.
+You are an AI assistant.
 
-    STRICT RULES:
-    - Answer ONLY using the context below
-    - Do NOT use outside knowledge
-    - If answer is not in context, say "Not found"
-    - Do NOT hallucinate
+STRICT RULES:
+- Answer ONLY using the context below
+- Do NOT use outside knowledge
+- If answer is not in context, say "Not found"
+- Do NOT hallucinate
 
-    Context:
-    {context}
+Context:
+{context}
 
-    Question:
-    {query}
+Question:
+{query}
 
-    Answer:
-    """
+Answer:
+"""
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
