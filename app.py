@@ -3,7 +3,7 @@ from rag_pipeline import *
 
 st.set_page_config(page_title="RAG Chatbot", layout="wide")
 
-# Custom UI
+# Custom U
 st.markdown("""
 <style>
 .user-msg {
