@@ -1,129 +1,92 @@
-import os
-import numpy as np
-import faiss
-from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
+from PyPDF2 import PdfReader
+import os
 from openai import OpenAI
 
-# ------------------ CONFIG ------------------
+# Load API key from environment
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-LLM_MODEL_NAME = "gpt-4o-mini"
-TOP_K = 3
-CHUNK_SIZE = 300
-OVERLAP = 50
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# ------------------ INIT ------------------
-
-embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY not set")
-
-llm_client = OpenAI(api_key=api_key)
-
-# ------------------ DOCUMENT LOADING ------------------
-
-def load_documents(folder_path: str) -> str:
-    """Load all PDF documents and extract text"""
-    text_data = ""
+# ------------------ LOAD PDFs ------------------
+def load_all_pdfs(folder_path):
+    text = ""
 
     if not os.path.exists(folder_path):
-        print("Data folder not found")
-        return text_data
+        return ""
 
     for file in os.listdir(folder_path):
-        if file.lower().endswith(".pdf"):
-            file_path = os.path.join(folder_path, file)
-            try:
-                reader = PdfReader(file_path)
-                for page in reader.pages:
-                    content = page.extract_text()
-                    if content:
-                        text_data += content + "\n"
-            except Exception as e:
-                print(f"Error reading {file}: {e}")
+        if file.endswith(".pdf"):
+            reader = PdfReader(os.path.join(folder_path, file))
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
 
-    return text_data
+    return text
 
 
 # ------------------ CHUNKING ------------------
-
-def chunk_text(text: str) -> list:
-    """Split text into overlapping chunks"""
-    if not text.strip():
+def chunk_text(text, chunk_size=300, overlap=50):
+    if not text:
         return []
 
     words = text.split()
     chunks = []
 
-    for i in range(0, len(words), CHUNK_SIZE - OVERLAP):
-        chunk = " ".join(words[i:i + CHUNK_SIZE])
+    for i in range(0, len(words), chunk_size - overlap):
+        chunk = " ".join(words[i:i + chunk_size])
         chunks.append(chunk)
 
     return chunks
 
 
 # ------------------ EMBEDDINGS ------------------
-
-def embed_chunks(chunks: list) -> np.ndarray:
-    """Convert text chunks to embeddings"""
-    if not chunks:
+def create_embeddings(chunks):
+    if len(chunks) == 0:
         return np.array([])
 
-    return embedding_model.encode(chunks)
+    return model.encode(chunks)
 
 
-# ------------------ INDEXING ------------------
-
-def build_faiss_index(embeddings: np.ndarray):
-    """Build FAISS index"""
-    if embeddings.size == 0:
+# ------------------ INDEX ------------------
+def build_index(embeddings):
+    if len(embeddings) == 0:
         return None
 
     dimension = embeddings.shape[1]
     index = faiss.IndexFlatL2(dimension)
-    index.add(embeddings)
-
+    index.add(np.array(embeddings))
     return index
 
 
-# ------------------ RETRIEVAL ------------------
-
-def retrieve_chunks(query: str, index, chunks: list, top_k=TOP_K) -> list:
-    """Retrieve top-k relevant chunks"""
+# ------------------ RETRIEVE ------------------
+def retrieve(query, index, chunks, k=3):
     if index is None:
         return []
 
-    query_embedding = embedding_model.encode([query])
-    distances, indices = index.search(query_embedding, top_k)
+    query_embedding = model.encode([query])
+    D, I = index.search(query_embedding, k)
 
-    results = []
-    for idx in indices[0]:
-        if idx < len(chunks):
-            results.append(chunks[idx])
-
-    return results
+    return [chunks[i] for i in I[0]]
 
 
-# ------------------ GENERATION ------------------
-
-def generate_response(query: str, retrieved_chunks: list) -> str:
-    """Generate grounded answer using LLM"""
-
+# ------------------ LLM ------------------
+def generate_answer(query, retrieved_chunks):
     if not retrieved_chunks:
-        return "No relevant information found in the documents."
+        return "No relevant information found in documents."
 
-    context = "\n\n".join(retrieved_chunks)
+    context = "\n".join(retrieved_chunks)
 
     prompt = f"""
 You are an AI assistant.
 
-Rules:
-- Answer only using the context below.
-- Do not use outside knowledge.
-- If answer is not present, say "Not found".
+STRICT RULES:
+- Answer ONLY using the context below
+- Do NOT use outside knowledge
+- If answer is not in context, say "Not found"
 
 Context:
 {context}
@@ -134,39 +97,10 @@ Question:
 Answer:
 """
 
-    try:
-        response = llm_client.chat.completions.create(
-            model=LLM_MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
-        )
-        return response.choices[0].message.content
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
 
-    except Exception as e:
-        return f"Error generating response: {str(e)}"
-
-
-# ------------------ FULL PIPELINE ------------------
-
-class RAGPipeline:
-    def __init__(self, data_path="data/"):
-        self.data_path = data_path
-        self.chunks = []
-        self.index = None
-
-    def setup(self):
-        """Prepare pipeline (load → chunk → embed → index)"""
-        text = load_documents(self.data_path)
-        self.chunks = chunk_text(text)
-        embeddings = embed_chunks(self.chunks)
-        self.index = build_faiss_index(embeddings)
-
-    def query(self, user_query: str):
-        """End-to-end query processing"""
-        retrieved = retrieve_chunks(user_query, self.index, self.chunks)
-        answer = generate_response(user_query, retrieved)
-
-        return {
-            "retrieved_chunks": retrieved,
-            "answer": answer
-        }
+    return response.choices[0].message.content
